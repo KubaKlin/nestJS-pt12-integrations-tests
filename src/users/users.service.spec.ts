@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { User } from '../../../generated/prisma';
+import { User } from '../../generated/prisma';
 import { PrismaService } from '../database/prisma.service';
 import { UsersService } from './users.service';
 
@@ -37,7 +37,6 @@ describe('The UsersService', () => {
           email: 'john@smith.com',
           name: 'John',
           password: 'strongPassword123',
-          addressId: null,
           phoneNumber: null,
           articles: [],
         };
