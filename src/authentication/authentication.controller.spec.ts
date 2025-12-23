@@ -1,4 +1,4 @@
-import { ExecutionContext, INestApplication } from '@nestjs/common';
+import { ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { JwtAuthenticationGuard } from './jwt-authentication.guard';
@@ -111,16 +111,25 @@ describe('The AuthenticationController', () => {
         );
       });
 
-      it('should set authentication cookie and return the user without password', async () => {
+      it('should set authentication cookie', async () => {
         const response = await request(app.getHttpServer())
           .post('/authentication/log-in')
           .send({ email: 'john.smith@example.com', password: 'password123' })
           .expect(200);
 
-        expect(response.headers['set-cookie']).toBeDefined();
-        expect((response.headers['set-cookie'] as string[]).join(';')).toContain(
-          'Authentication=token',
-        );
+        const cookies = response.headers['set-cookie'];
+        expect(cookies).toBeDefined();
+
+        const cookieHeader = Array.isArray(cookies) ? cookies.join(';') : cookies;
+        expect(cookieHeader).toContain('Authentication=token');
+      });
+
+      it('should return the user without password', async () => {
+        const response = await request(app.getHttpServer())
+          .post('/authentication/log-in')
+          .send({ email: 'john.smith@example.com', password: 'password123' })
+          .expect(200);
+
         expect(response.body).toEqual({
           id: 1,
           email: 'john.smith@example.com',
@@ -143,10 +152,11 @@ describe('The AuthenticationController', () => {
         .post('/authentication/log-out')
         .expect(200);
 
-      expect(response.headers['set-cookie']).toBeDefined();
-      expect((response.headers['set-cookie'] as string[]).join(';')).toContain(
-        'Max-Age=0',
-      );
+      const cookies = response.headers['set-cookie'];
+      expect(cookies).toBeDefined();
+
+      const cookieHeader = Array.isArray(cookies) ? cookies.join(';') : cookies;
+      expect(cookieHeader).toContain('Max-Age=0');
     });
   });
 
@@ -156,6 +166,38 @@ describe('The AuthenticationController', () => {
         id: 1,
         name: 'John Smith',
         email: 'john.smith@example.com',
+      });
+    });
+
+    describe('and the user is not authenticated', () => {
+      beforeEach(async () => {
+        const module = await Test.createTestingModule({
+          controllers: [AuthenticationController],
+          providers: [
+            {
+              provide: AuthenticationService,
+              useValue: {
+                signUp: signUpMock,
+                getAuthenticatedUser: getAuthenticatedUserMock,
+                getCookieWithJwtToken: getCookieWithJwtTokenMock,
+                getCookieForLogOut: getCookieForLogOutMock,
+              },
+            },
+          ],
+        })
+          .overrideGuard(JwtAuthenticationGuard)
+          .useValue({
+            canActivate: () => {
+              throw new UnauthorizedException();
+            },
+          })
+          .compile();
+
+        app = await createTestApp(module);
+      });
+
+      it('should respond with 401', () => {
+        return request(app.getHttpServer()).get('/authentication').expect(401);
       });
     });
   });
