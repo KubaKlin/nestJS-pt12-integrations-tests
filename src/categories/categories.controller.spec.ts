@@ -1,4 +1,4 @@
-import { ExecutionContext, INestApplication } from '@nestjs/common';
+import { ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismaService } from '../database/prisma.service';
@@ -7,6 +7,8 @@ import { CategoriesService } from './categories.service';
 import { JwtAuthenticationGuard } from '../authentication/jwt-authentication.guard';
 import { createTestApp } from '../test-utils/supertest-app';
 import { mockJwtAuthenticationGuard } from '../test-utils/mock-jwt-auth-guard';
+import { Prisma } from '../../generated/prisma';
+import { PrismaError } from '../database/prisma-error.enum';
 
 describe('The CategoriesController', () => {
   let app: INestApplication;
@@ -16,6 +18,13 @@ describe('The CategoriesController', () => {
   let createMock: jest.Mock;
   let updateMock: jest.Mock;
   let deleteMock: jest.Mock;
+
+  const createKnownRequestError = (code: string) => {
+    return new Prisma.PrismaClientKnownRequestError('Known Prisma error', {
+      code,
+      clientVersion: 'test',
+    } as any);
+  };
 
   beforeEach(async () => {
     findManyMock = jest.fn();
@@ -92,6 +101,45 @@ describe('The CategoriesController', () => {
   });
 
   describe('when the POST /categories endpoint is called', () => {
+    describe('and the user is not authenticated', () => {
+      beforeEach(async () => {
+        const module = await Test.createTestingModule({
+          providers: [
+            CategoriesService,
+            {
+              provide: PrismaService,
+              useValue: {
+                category: {
+                  findMany: findManyMock,
+                  findUnique: findUniqueMock,
+                  create: createMock,
+                  update: updateMock,
+                  delete: deleteMock,
+                },
+              },
+            },
+          ],
+          controllers: [CategoriesController],
+        })
+          .overrideGuard(JwtAuthenticationGuard)
+          .useValue({
+            canActivate: () => {
+              throw new UnauthorizedException();
+            },
+          })
+          .compile();
+
+        app = await createTestApp(module);
+      });
+
+      it('should respond with 401', () => {
+        return request(app.getHttpServer())
+          .post('/categories')
+          .send({ name: 'New category' })
+          .expect(401);
+      });
+    });
+
     describe('and incorrect data is provided', () => {
       it('should respond with 400', () => {
         return request(app.getHttpServer()).post('/categories').send({}).expect(400);
@@ -120,6 +168,21 @@ describe('The CategoriesController', () => {
           .patch('/categories/1')
           .send({ name: '' })
           .expect(400);
+      });
+    });
+
+    describe('and the category does not exist', () => {
+      beforeEach(() => {
+        updateMock.mockRejectedValue(
+          createKnownRequestError(PrismaError.RecordDoesNotExist),
+        );
+      });
+
+      it('should respond with 404', () => {
+        return request(app.getHttpServer())
+          .patch('/categories/999')
+          .send({ name: 'Updated' })
+          .expect(404);
       });
     });
 
