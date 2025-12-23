@@ -1,4 +1,4 @@
-import { ExecutionContext, INestApplication } from '@nestjs/common';
+import { ExecutionContext, INestApplication, UnauthorizedException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { PrismaService } from '../database/prisma.service';
@@ -69,6 +69,42 @@ describe('The UsersController', () => {
   });
 
   describe('when the PATCH /users/phone-number endpoint is called', () => {
+    describe('and the user is not authenticated', () => {
+      beforeEach(async () => {
+        const module = await Test.createTestingModule({
+          providers: [
+            UsersService,
+            {
+              provide: PrismaService,
+              useValue: {
+                user: {
+                  update: userUpdateMock,
+                },
+                $transaction: transactionMock,
+              },
+            },
+          ],
+          controllers: [UsersController],
+        })
+          .overrideGuard(JwtAuthenticationGuard)
+          .useValue({
+            canActivate: () => {
+              throw new UnauthorizedException();
+            },
+          })
+          .compile();
+
+        app = await createTestApp(module);
+      });
+
+      it('should respond with 401', () => {
+        return request(app.getHttpServer())
+          .patch('/users/phone-number')
+          .send({ phoneNumber: '+1234567890' })
+          .expect(401);
+      });
+    });
+
     describe('and incorrect data is provided', () => {
       it('should respond with 400', () => {
         return request(app.getHttpServer())
@@ -100,6 +136,46 @@ describe('The UsersController', () => {
   });
 
   describe('when the DELETE /users endpoint is called', () => {
+    describe('and the user is not authenticated', () => {
+      beforeEach(async () => {
+        const module = await Test.createTestingModule({
+          providers: [
+            UsersService,
+            {
+              provide: PrismaService,
+              useValue: {
+                user: {
+                  update: userUpdateMock,
+                },
+                $transaction: transactionMock,
+              },
+            },
+          ],
+          controllers: [UsersController],
+        })
+          .overrideGuard(JwtAuthenticationGuard)
+          .useValue({
+            canActivate: () => {
+              throw new UnauthorizedException();
+            },
+          })
+          .compile();
+
+        app = await createTestApp(module);
+      });
+
+      it('should respond with 401', () => {
+        return request(app.getHttpServer()).delete('/users').expect(401);
+      });
+
+      it('should respond with 401 even when newAuthor is provided', () => {
+        return request(app.getHttpServer())
+          .delete('/users')
+          .query({ newAuthor: '2' })
+          .expect(401);
+      });
+    });
+
     describe('and newAuthor is not provided', () => {
       beforeEach(() => {
         transactionUserFindUniqueMock.mockResolvedValue({ id: 1 });
